@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>X Follower Count</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1>X 粉丝数显示</h1>
+
+  <label class="row">
+    <span>启用</span>
+    <input type="checkbox" id="enabled">
+  </label>
+
+  <fieldset>
+    <legend>显示位置</legend>
+    <label><input type="radio" name="position" value="avatar"> 头像下方</label>
+    <label><input type="radio" name="position" value="name"> @用户名后面</label>
+  </fieldset>
+
+  <div class="row muted">
+    <span id="stats">已缓存 0 位用户</span>
+    <button id="clear" type="button">清空缓存</button>
+  </div>
+
+  <p class="hint">粉丝数来自页面本身加载的数据，滚动浏览时会自动出现；缓存保留 3 天。</p>
+
+  <script src="popup.js"></script>
+</body>
+</html>

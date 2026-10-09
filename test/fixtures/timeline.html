@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>mock x.com</title></head>
+<body>
+  <main id="feed"></main>
+  <script>
+    // Mimics the bits of X's DOM the extension relies on.
+    function avatar(name, px) {
+      return `<div data-testid="UserAvatar-Container-${name}" style="width:${px}px;height:${px}px">
+        <a href="/${name}"><div style="width:${px}px;height:${px}px;border-radius:50%;background:#ccc"></div></a>
+      </div>`;
+    }
+    function userName(display, name) {
+      return `<div data-testid="User-Name"><a href="/${name}"><span>${display}</span></a>
+        <a href="/${name}"><div><span>@${name}</span></div></a></div>`;
+    }
+    document.getElementById('feed').innerHTML = `
+      <article data-testid="tweet" id="t1">
+        <div style="display:flex">
+          <div>${avatar('Alice', 40)}</div>
+          <div>${userName('Alice', 'Alice')}
+            <div data-testid="tweetText">hi <a href="/bob"><span>@bob</span></a></div>
+            <div id="quote">${avatar('bob', 20)}${userName('Bob', 'bob')}</div>
+          </div>
+        </div>
+      </article>
+      <article data-testid="tweet" id="t2">
+        <div style="display:flex"><div>${avatar('nobody', 40)}</div><div>${userName('Nobody', 'nobody')}</div></div>
+      </article>
+      <div data-testid="UserCell" id="cell">${avatar('carol', 40)}
+        <a href="/carol"><span>Carol</span></a><a href="/carol"><span>@carol</span></a></div>
+      <div id="outside">${avatar('Alice', 40)}</div>
+    `;
+
+    // New-style GraphQL user (screen_name under core) via fetch.
+    fetch('/i/api/graphql/abc/HomeTimeline').then(r => r.json());
+
+    // Old-style GraphQL users via XHR.
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', '/i/api/graphql/def/UserTweets');
+    xhr.send();
+  </script>
+</body>
+</html>

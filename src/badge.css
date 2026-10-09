@@ -1,0 +1,37 @@
+.xfc-badge {
+  display: inline-block;
+  box-sizing: border-box;
+  padding: 0 5px;
+  border-radius: 9999px;
+  font: 600 11px/16px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+  color: #fff;
+  white-space: nowrap;
+  pointer-events: auto;
+  cursor: default;
+  user-select: none;
+}
+
+/* Pill hanging off the bottom edge of the avatar. */
+.xfc-badge.xfc-avatar {
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  transform: translateX(-50%);
+  z-index: 2;
+  font-size: 10px;
+  line-height: 14px;
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85);
+}
+
+/* Inline pill right after the @handle. */
+.xfc-badge.xfc-name {
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+/* Colour by audience size. */
+.xfc-t1 { background: #71767b; }   /* < 1万 */
+.xfc-t2 { background: #1d9bf0; }   /* 1万 – 10万 */
+.xfc-t3 { background: #7856ff; }   /* 10万 – 100万 */
+.xfc-t4 { background: #f91880; }   /* ≥ 100万 */
