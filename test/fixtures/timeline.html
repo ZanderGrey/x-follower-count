@@ -13,36 +13,41 @@
         <a href="/${name}"><div style="width:${px}px;height:${px}px;border-radius:50%;background:#ccc"></div></a>
       </div>`;
       }
-      function userName(display, name) {
+      // With a tweet id, adds the timestamp permalink X puts in tweet headers.
+      function userName(display, name, tweetId) {
+        const permalink = tweetId ? `<a href="/${name}/status/${tweetId}"><time>1h</time></a>` : '';
         return `<div data-testid="User-Name"><a href="/${name}"><span>${display}</span></a>
-        <a href="/${name}"><div><span>@${name}</span></div></a></div>`;
+        <a href="/${name}"><div><span>@${name}</span></div></a>${permalink}</div>`;
       }
       document.getElementById('feed').innerHTML = `
       <article data-testid="tweet" id="t1">
         <div style="display:flex">
           <div>${avatar('Alice', 40)}</div>
-          <div>${userName('Alice', 'Alice')}
+          <div>${userName('Alice', 'Alice', '111')}
             <div data-testid="tweetText">hi <a href="/bob"><span>@bob</span></a></div>
-            <div id="quote">${avatar('bob', 20)}${userName('Bob', 'bob')}</div>
+            <div id="quote">${avatar('bob', 20)}${userName('Bob', 'bob', '222')}</div>
           </div>
         </div>
       </article>
       <article data-testid="tweet" id="t2">
-        <div style="display:flex"><div>${avatar('nobody', 40)}</div><div>${userName('Nobody', 'nobody')}</div></div>
+        <div style="display:flex"><div>${avatar('nobody', 40)}</div><div>${userName('Nobody', 'nobody', '444')}</div></div>
       </article>
       <div data-testid="UserCell" id="cell">${avatar('carol', 40)}
         <a href="/carol"><span>Carol</span></a><a href="/carol"><span>@carol</span></a></div>
       <article data-testid="tweet" id="t3">
         <div style="display:flex">
           <div data-testid="Tweet-User-Avatar" style="width:40px;height:40px"><a href="/dave"><div style="width:40px;height:40px;border-radius:50%;background:#ccc"></div></a></div>
-          <div>${userName('Dave', 'dave')}</div>
+          <div>${userName('Dave', 'dave', '333')}</div>
         </div>
+      </article>
+      <article data-testid="tweet" id="t4">
+        <div style="display:flex"><div>${avatar('frank', 40)}</div><div>${userName('Frank', 'frank', '555')}</div></div>
       </article>
       <div id="outside">${avatar('Alice', 40)}</div>
     `;
 
       // New-style GraphQL user (screen_name under core) via fetch.
-      fetch('/i/api/graphql/abc/HomeTimeline').then((r) => r.json());
+      const homeLoaded = fetch('/i/api/graphql/abc/HomeTimeline').then((r) => r.json());
 
       // Old-style GraphQL users via XHR.
       const xhr = new XMLHttpRequest();
@@ -54,10 +59,13 @@
       ab.open('GET', '/i/api/graphql/ghi/TweetDetail');
       ab.responseType = 'arraybuffer';
       ab.send();
-      const blob = new XMLHttpRequest();
-      blob.open('GET', '/i/api/graphql/jkl/SearchTimeline');
-      blob.responseType = 'blob';
-      blob.send();
+      // Sent after HomeTimeline so its relationship-less Alice arrives second.
+      homeLoaded.then(() => {
+        const blob = new XMLHttpRequest();
+        blob.open('GET', '/i/api/graphql/jkl/SearchTimeline');
+        blob.responseType = 'blob';
+        blob.send();
+      });
     </script>
   </body>
 </html>

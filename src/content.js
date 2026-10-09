@@ -2,13 +2,22 @@
 // page-hook.js, caches them, and draws a badge next to each author's avatar
 // (or @handle) in tweets and user lists.
 (() => {
-  const { STORAGE_KEYS, DEFAULT_SETTINGS, CACHE_TTL_MS, CACHE_MAX_ENTRIES, MESSAGE } = globalThis.XFC;
+  const {
+    STORAGE_KEYS,
+    DEFAULT_SETTINGS,
+    RELATION,
+    CACHE_TTL_MS,
+    CACHE_MAX_ENTRIES,
+    TWEETS_MAX_ENTRIES,
+    MESSAGE,
+  } = globalThis.XFC;
 
   const SAVE_DELAY_MS = 2000;
   const PAGE_STATS_TIMEOUT_MS = 500;
   const SMALL_AVATAR_PX = 28;
 
   const BADGE_CLASS = 'xfc-badge';
+  const HOT_CLASS = 'xfc-hot';
   const HOOK_ATTR = 'data-xfc-hook';
   const AVATAR_PREFIX = 'UserAvatar-Container-';
   const USER_AVATAR_SEL = `[data-testid^="${AVATAR_PREFIX}"]`;
@@ -20,12 +29,19 @@
   const USER_CELL_SEL = '[data-testid="UserCell"]';
   const SCOPE_SEL = `${TWEET_SEL}, ${USER_CELL_SEL}`;
   const USER_NAME_SEL = '[data-testid="User-Name"]';
+  // The tweet's own permalink wraps its timestamp; the first one in an
+  // article belongs to the tweet itself, not to a quoted tweet.
+  const PERMALINK_SEL = 'a[href*="/status/"]:has(> time)';
 
-  /** screen_name (lowercase) -> { c: followers, t: last seen ms } */
+  /** screen_name (lowercase) -> { c: followers, t: last seen ms, r?: RELATION flags } */
   const counts = new Map();
+  /** tweet id -> { likes, author } (memory only) */
+  const tweets = new Map();
   let settings = { ...DEFAULT_SETTINGS };
-  /** avatar element -> { badge, count } */
+  /** avatar element -> { badge, key } */
   let placed = new WeakMap();
+  /** tweet article -> { marker, key } */
+  let hotPlaced = new WeakMap();
   const stats = { apiResponses: 0, usersFromApi: 0 };
 
   // ---------- storage ----------
@@ -103,17 +119,42 @@
     if (data.api) stats.apiResponses++;
     stats.usersFromApi += data.users.length;
 
+    const usersChanged = storeUsers(data.users);
+    const tweetsChanged = Array.isArray(data.tweets) && storeTweets(data.tweets);
+    scheduleSave();
+    if (usersChanged || tweetsChanged) scheduleRender();
+  }
+
+  /** Stores [name, followers, relation] triples; returns whether anything changed. */
+  function storeUsers(users) {
     const now = Date.now();
     let changed = false;
-    for (const pair of data.users) {
-      if (!Array.isArray(pair)) continue;
-      const [name, count] = pair;
+    for (const user of users) {
+      if (!Array.isArray(user)) continue;
+      const [name, count, relation] = user;
       if (typeof name !== 'string' || !Number.isFinite(count)) continue;
-      if (counts.get(name)?.c !== count) changed = true;
-      counts.set(name, { c: count, t: now });
+      const prev = counts.get(name);
+      // Not every response says how you relate to a user; keep what we knew.
+      const r = Number.isInteger(relation) ? relation : prev?.r;
+      if (prev?.c !== count || prev?.r !== r) changed = true;
+      counts.set(name, r === undefined ? { c: count, t: now } : { c: count, t: now, r });
     }
-    scheduleSave();
-    if (changed) scheduleRender();
+    return changed;
+  }
+
+  /** Stores [id, likes, author] triples; returns whether anything changed. */
+  function storeTweets(list) {
+    let changed = false;
+    for (const tweet of list) {
+      if (!Array.isArray(tweet)) continue;
+      const [id, likes, author] = tweet;
+      if (typeof id !== 'string' || !Number.isFinite(likes) || typeof author !== 'string') continue;
+      if (tweets.get(id)?.likes !== likes) changed = true;
+      tweets.delete(id); // Re-insert so the Map stays ordered oldest -> newest.
+      tweets.set(id, { likes, author });
+    }
+    while (tweets.size > TWEETS_MAX_ENTRIES) tweets.delete(tweets.keys().next().value);
+    return changed;
   }
 
   // ---------- badges ----------
@@ -139,12 +180,26 @@
     return 'xfc-t1';
   }
 
-  function makeBadge(count, mode) {
+  /** Returns { mark, label } for how you relate to a user, or null. */
+  function relationLabel(relation) {
+    if (!settings.showFollowing || !(relation & RELATION.following)) return null;
+    return relation & RELATION.followedBy
+      ? { mark: '⇄', label: '互相关注' }
+      : { mark: '✓', label: '你已关注' };
+  }
+
+  function makeBadge(entry, mode) {
+    const rel = relationLabel(entry.r);
     const badge = document.createElement('span');
-    badge.className = `${BADGE_CLASS} xfc-${mode} ${tierClass(count)}`;
-    badge.textContent = formatCount(count);
-    badge.title = `粉丝：${count.toLocaleString()}`;
+    badge.className = `${BADGE_CLASS} xfc-${mode} ${tierClass(entry.c)}${rel ? ' xfc-following' : ''}`;
+    badge.textContent = rel ? `${rel.mark} ${formatCount(entry.c)}` : formatCount(entry.c);
+    badge.title = `粉丝：${entry.c.toLocaleString()}${rel ? `\n${rel.label}` : ''}`;
     return badge;
+  }
+
+  /** Changes whenever the badge for this entry would look different. */
+  function badgeKey(entry) {
+    return `${entry.c}|${relationLabel(entry.r)?.mark || ''}`;
   }
 
   function screenNameOf(avatar) {
@@ -171,7 +226,7 @@
     return null;
   }
 
-  function placeBadge(avatar, scope, name, count) {
+  function placeBadge(avatar, scope, name, entry) {
     let mode = settings.position === 'name' ? 'name' : 'avatar';
     if (mode === 'avatar' && avatar.offsetWidth > 0 && avatar.offsetWidth < SMALL_AVATAR_PX) {
       mode = 'name'; // e.g. quoted tweets: too small to hang a badge under.
@@ -179,14 +234,14 @@
 
     if (mode === 'avatar') {
       if (getComputedStyle(avatar).position === 'static') avatar.style.position = 'relative';
-      const badge = makeBadge(count, mode);
+      const badge = makeBadge(entry, mode);
       avatar.appendChild(badge);
       return badge;
     }
 
     const handle = findHandle(scope, name);
     if (!handle) return null;
-    const badge = makeBadge(count, mode);
+    const badge = makeBadge(entry, mode);
     handle.after(badge);
     return badge;
   }
@@ -203,24 +258,81 @@
     }
   }
 
-  function render() {
-    if (!settings.enabled) return;
+  function renderBadges() {
     for (const [avatar, scope, name] of authorAvatars()) {
       const entry = counts.get(name);
       if (!entry) continue;
+      const key = badgeKey(entry);
       const prev = placed.get(avatar);
       if (prev?.badge.isConnected) {
-        if (prev.count === entry.c) continue;
+        if (prev.key === key) continue;
         prev.badge.remove();
       }
-      const badge = placeBadge(avatar, scope, name, entry.c);
-      if (badge) placed.set(avatar, { badge, count: entry.c });
+      const badge = placeBadge(avatar, scope, name, entry);
+      if (badge) placed.set(avatar, { badge, key });
     }
   }
 
+  // ---------- hot tweets ----------
+
+  function formatRatio(ratio) {
+    return ratio >= 1
+      ? `${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)}×`
+      : `${Math.round(ratio * 100)}%`;
+  }
+
+  /** Returns { likes, followers, ratio } if the tweet counts as hot, else null. */
+  function hotness(tweet) {
+    const followers = counts.get(tweet.author)?.c;
+    if (followers === undefined || tweet.likes < settings.hotMinLikes) return null;
+    const ratio = tweet.likes / Math.max(followers, 1);
+    return ratio >= settings.hotRatio ? { likes: tweet.likes, followers, ratio } : null;
+  }
+
+  function makeHotMarker({ likes, followers, ratio }) {
+    const marker = document.createElement('span');
+    marker.className = `${HOT_CLASS}${ratio >= 1 ? ' xfc-hot-max' : ''}`;
+    marker.textContent = `🔥 ${formatRatio(ratio)}`;
+    marker.title =
+      `爆款：点赞 ${likes.toLocaleString()}，作者粉丝 ${followers.toLocaleString()}\n` +
+      `点赞数是粉丝数的 ${ratio >= 1 ? `${ratio.toFixed(1)} 倍` : `${(ratio * 100).toFixed(1)}%`}`;
+    return marker;
+  }
+
+  function renderHotMarkers() {
+    for (const article of document.querySelectorAll(TWEET_SEL)) {
+      const permalink = article.querySelector(PERMALINK_SEL);
+      const id = permalink?.getAttribute('href').match(/\/status\/(\d+)/)?.[1];
+      const tweet = id && tweets.get(id);
+      const hot = tweet && hotness(tweet);
+      const key = hot ? `${id}|${hot.likes}|${hot.followers}` : '';
+      const prev = hotPlaced.get(article);
+      if (prev?.marker.isConnected) {
+        if (prev.key === key) continue;
+        prev.marker.remove();
+      }
+      if (!hot) {
+        hotPlaced.delete(article);
+        continue;
+      }
+      const marker = makeHotMarker(hot);
+      permalink.after(marker);
+      hotPlaced.set(article, { marker, key });
+    }
+  }
+
+  // ---------- render loop ----------
+
+  function render() {
+    if (!settings.enabled) return;
+    renderBadges();
+    if (settings.hotTweets) renderHotMarkers();
+  }
+
   function resetBadges() {
-    for (const badge of document.querySelectorAll(`.${BADGE_CLASS}`)) badge.remove();
+    for (const el of document.querySelectorAll(`.${BADGE_CLASS}, .${HOT_CLASS}`)) el.remove();
     placed = new WeakMap();
+    hotPlaced = new WeakMap();
     scheduleRender();
   }
 
@@ -266,6 +378,8 @@
       cells: document.querySelectorAll(USER_CELL_SEL).length,
       avatars: avatarNames.size,
       badges: document.querySelectorAll(`.${BADGE_CLASS}`).length,
+      tweetsKnown: tweets.size,
+      hotMarkers: document.querySelectorAll(`.${HOT_CLASS}`).length,
       missing: [...avatarNames].filter((name) => !counts.has(name)).slice(0, 5),
       sampleKnown: [...counts.keys()].slice(-5),
       page: await pageStats(),

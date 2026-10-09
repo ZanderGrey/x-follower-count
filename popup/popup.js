@@ -4,7 +4,9 @@
   const MAX_ENDPOINT_ROWS = 8;
 
   const $ = (id) => document.getElementById(id);
-  const enabledInput = $('enabled');
+  /** Boolean settings, each bound to the checkbox with the same id. */
+  const CHECKBOX_SETTINGS = ['enabled', 'showFollowing', 'hotTweets'];
+  const hotRatioSelect = $('hotRatio');
   const positionInputs = [...document.querySelectorAll('input[name="position"]')];
   const cacheStats = $('stats');
   const clearButton = $('clear');
@@ -29,14 +31,24 @@
   function loadSettings() {
     chrome.storage.local.get([STORAGE_KEYS.cache, STORAGE_KEYS.settings], (r) => {
       settings = { ...DEFAULT_SETTINGS, ...r[STORAGE_KEYS.settings] };
-      enabledInput.checked = settings.enabled;
+      for (const key of CHECKBOX_SETTINGS) $(key).checked = settings[key];
       for (const input of positionInputs) input.checked = input.value === settings.position;
+      hotRatioSelect.value = String(settings.hotRatio);
+      hotRatioSelect.disabled = !settings.hotTweets;
       showCacheSize(r[STORAGE_KEYS.cache]);
     });
   }
 
-  enabledInput.addEventListener('change', () => {
-    settings.enabled = enabledInput.checked;
+  for (const key of CHECKBOX_SETTINGS) {
+    $(key).addEventListener('change', () => {
+      settings[key] = $(key).checked;
+      if (key === 'hotTweets') hotRatioSelect.disabled = !settings.hotTweets;
+      saveSettings();
+    });
+  }
+
+  hotRatioSelect.addEventListener('change', () => {
+    settings.hotRatio = Number(hotRatioSelect.value);
     saveSettings();
   });
 
@@ -86,6 +98,7 @@
       ['页面上的推文 / 用户卡片', `${d.tweets} / ${d.cells}`],
       ['识别到的头像', d.avatars],
       ['已显示的徽标', d.badges],
+      ['已知推文 / 爆款标记', `${d.tweetsKnown} / ${d.hotMarkers}`],
       ['没有数据的头像', d.missing.join(', ') || '-'],
       ['已知用户示例', d.sampleKnown.join(', ') || '-'],
       ...endpointRows,

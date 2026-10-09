@@ -100,3 +100,14 @@ dd {
   text-align: right;
   word-break: break-all;
 }
+label.indent {
+  margin-left: 22px;
+  color: var(--muted);
+}
+select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}

@@ -49,3 +49,36 @@
 .xfc-t4 {
   background: #f91880;
 } /* ≥ 100万 */
+
+/* Someone you follow: a brighter ring so it reads at a glance. */
+.xfc-badge.xfc-following {
+  box-shadow: 0 0 0 1.5px #00ba7c;
+}
+
+/* "Hot tweet" marker next to the timestamp. */
+.xfc-hot {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 9999px;
+  background: rgba(255, 122, 0, 0.15);
+  color: #e8590c;
+  font:
+    600 11px/16px -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    'PingFang SC',
+    'Microsoft YaHei',
+    sans-serif;
+  white-space: nowrap;
+  vertical-align: middle;
+  cursor: default;
+  user-select: none;
+}
+
+/* Likes at least equal to the author's follower count. */
+.xfc-hot.xfc-hot-max {
+  background: #f4212e;
+  color: #fff;
+}

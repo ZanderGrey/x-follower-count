@@ -19,6 +19,21 @@
       <label><input type="radio" name="position" value="name" /> @用户名后面</label>
     </fieldset>
 
+    <fieldset>
+      <legend>标记</legend>
+      <label><input type="checkbox" id="showFollowing" /> 我关注的人（✓ 已关注，⇄ 互关）</label>
+      <label><input type="checkbox" id="hotTweets" /> 爆款推文 🔥</label>
+      <label class="indent">
+        点赞 ≥ 作者粉丝的
+        <select id="hotRatio">
+          <option value="0.05">5%</option>
+          <option value="0.1">10%</option>
+          <option value="0.3">30%</option>
+          <option value="1">100%</option>
+        </select>
+      </label>
+    </fieldset>
+
     <div class="row muted">
       <span id="stats">已缓存 0 位用户</span>
       <button id="clear" type="button">清空缓存</button>

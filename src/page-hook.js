@@ -3,8 +3,9 @@
 // X's web client already downloads full user objects - including
 // followers_count - for every author shown in a timeline. Instead of making
 // extra requests, we listen to the API responses the page receives anyway,
-// pull out {screen_name -> followers_count}, and hand the result to the
-// extension's content script via window.postMessage.
+// pull out follower counts, the viewer's follow relationship with each user
+// and per-tweet like counts, and hand them to the extension's content script
+// via window.postMessage.
 (() => {
   if (window.__xfcHooked) return;
   window.__xfcHooked = true;
@@ -20,6 +21,9 @@
   const MAX_NODES = 500_000;
   const MAX_JSON_PREFIX = 20;
   const FOLLOWERS_KEY_RE = /^(?:followers_?count|followers)$/i;
+  // Relationship bit flags; mirror XFC.RELATION in shared.js.
+  const FOLLOWING = 1;
+  const FOLLOWED_BY = 2;
 
   // ---------- parsing ----------
 
@@ -40,27 +44,54 @@
     return undefined;
   }
 
-  /** Returns [screenName, followers] if `o` is a user object we can read. */
+  /**
+   * The viewer's relationship with a user as bit flags (FOLLOWING, FOLLOWED_BY),
+   * or null when the object doesn't say. Newer responses keep it in
+   * relationship_perspectives, older ones in legacy or on a REST user.
+   */
+  function readRelation(o) {
+    const hasFlags = (v) => isPlainObject(v) && ('following' in v || 'followed_by' in v);
+    const source = [o.relationship_perspectives, o.legacy, o].find(hasFlags);
+    if (!source) return null;
+    return (source.following === true ? FOLLOWING : 0) | (source.followed_by === true ? FOLLOWED_BY : 0);
+  }
+
+  /** Returns [screenName, followers, relation] if `o` is a user object we can read. */
   function readUser(o) {
     if (typeof o.legacy?.followers_count === 'number') {
       // GraphQL User. screen_name moved from legacy to core in 2025; accept either.
-      return [o.core?.screen_name || o.legacy.screen_name, o.legacy.followers_count];
+      return [o.core?.screen_name || o.legacy.screen_name, o.legacy.followers_count, readRelation(o)];
     }
     if (typeof o.followers_count === 'number' && typeof o.screen_name === 'string') {
       // REST v1.1 user, also used by window.__INITIAL_STATE__.
-      return [o.screen_name, o.followers_count];
+      return [o.screen_name, o.followers_count, readRelation(o)];
     }
     if (o.__typename === 'User') {
       const count = findFollowers(o, 2);
       if (count === undefined) noteUnreadUser(o);
-      return [o.core?.screen_name || o.legacy?.screen_name || o.screen_name, count];
+      return [o.core?.screen_name || o.legacy?.screen_name || o.screen_name, count, readRelation(o)];
     }
     return null;
   }
 
-  /** Walks a JSON value and returns Map(lowercase screen name -> followers). */
-  function collectUsers(root) {
-    const found = new Map();
+  /** Returns [tweetId, likes, authorScreenName] if `o` is a GraphQL tweet we can read. */
+  function readTweet(o) {
+    if (typeof o.legacy?.favorite_count !== 'number') return null;
+    const author = o.core?.user_results?.result;
+    if (!isPlainObject(author)) return null;
+    const id = o.rest_id || o.legacy.id_str;
+    const name = author.core?.screen_name || author.legacy?.screen_name;
+    if (typeof id !== 'string' || typeof name !== 'string') return null;
+    return [id, o.legacy.favorite_count, name.toLowerCase()];
+  }
+
+  /**
+   * Walks a JSON value and returns
+   * { users: Map(screen name -> [followers, relation]), tweets: Map(id -> [likes, author]) }.
+   */
+  function collect(root) {
+    const users = new Map();
+    const tweets = new Map();
     const stack = [root];
     let budget = MAX_NODES;
     while (stack.length && budget-- > 0) {
@@ -68,14 +99,16 @@
       if (!Array.isArray(node)) {
         const user = readUser(node);
         if (user && typeof user[0] === 'string' && user[0] && typeof user[1] === 'number') {
-          found.set(user[0].toLowerCase(), user[1]);
+          users.set(user[0].toLowerCase(), [user[1], user[2]]);
         }
+        const tweet = readTweet(node);
+        if (tweet) tweets.set(tweet[0], [tweet[1], tweet[2]]);
       }
       for (const v of Array.isArray(node) ? node : Object.values(node)) {
         if (v && typeof v === 'object') stack.push(v);
       }
     }
-    return found;
+    return { users, tweets };
   }
 
   /** Parses JSON, tolerating anti-hijacking prefixes such as ")]}'" or "for(;;);". */
@@ -92,8 +125,17 @@
 
   // ---------- reporting to the content script ----------
 
-  function postUsers(users, fromApi) {
-    window.postMessage({ type: MESSAGE.users, users: [...users], api: fromApi }, location.origin);
+  /** Message format: users [[name, followers, relation]], tweets [[id, likes, author]]. */
+  function postFound({ users, tweets }, fromApi) {
+    window.postMessage(
+      {
+        type: MESSAGE.users,
+        users: [...users].map(([name, [followers, relation]]) => [name, followers, relation]),
+        tweets: [...tweets].map(([id, [likes, author]]) => [id, likes, author]),
+        api: fromApi,
+      },
+      location.origin
+    );
   }
 
   /**
@@ -101,9 +143,9 @@
    * with no users in it, so diagnostics can tell "not intercepting" from "no data".
    */
   function handleResponse(url, via, kind, data, text = '') {
-    const users = data && typeof data === 'object' ? collectUsers(data) : new Map();
-    recordEndpoint(url, via, kind, users.size, Boolean(data), text);
-    postUsers(users, true);
+    const found = data && typeof data === 'object' ? collect(data) : { users: new Map(), tweets: new Map() };
+    recordEndpoint(url, via, kind, found.users.size, Boolean(data), text);
+    postFound(found, true);
   }
 
   function handleText(url, via, kind, text) {
@@ -263,8 +305,8 @@
     try {
       const users = window.__INITIAL_STATE__?.entities?.users?.entities;
       if (!users) return;
-      const found = collectUsers(users);
-      if (found.size) postUsers(found, false);
+      const found = collect(users);
+      if (found.users.size) postFound(found, false);
     } catch {
       // Ignore malformed state.
     }

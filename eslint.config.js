@@ -21,9 +21,9 @@ module.exports = [
     },
   },
   {
-    // Code passed to page.evaluate() runs in the extension page, not Node.
+    // Code passed to page.evaluate() / waitForFunction() runs in the browser, not Node.
     files: ['test/**/*.js'],
-    languageOptions: { globals: { chrome: 'readonly' } },
+    languageOptions: { globals: { chrome: 'readonly', document: 'readonly' } },
   },
   {
     rules: {
