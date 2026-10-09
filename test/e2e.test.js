@@ -91,6 +91,13 @@ describe('X Follower Count', () => {
     assert.equal(await badge('[data-testid="tweetText"]').count(), 0);
   });
 
+  test('a self-quote gets one badge per avatar, not a second one in the outer header', async () => {
+    assert.equal(await textOf('#t5 [data-testid="UserAvatar-Container-gina"]:not(#self-quote *)'), '171');
+    assert.equal(await textOf('#self-quote [data-testid="User-Name"]'), '171');
+    assert.equal(await badge('#t5 [data-testid="User-Name"]:not(#self-quote *)').count(), 0);
+    assert.equal(await badge('#t5').count(), 2);
+  });
+
   test('badges user cells', async () => {
     assert.equal(await textOf('#cell'), '999');
   });
@@ -102,7 +109,7 @@ describe('X Follower Count', () => {
   test('skips unknown users and avatars outside tweets and user cells', async () => {
     assert.equal(await badge('#t2').count(), 0);
     assert.equal(await badge('#outside').count(), 0);
-    assert.equal(await page.locator('.xfc-badge').count(), 5);
+    assert.equal(await page.locator('.xfc-badge').count(), 7);
   });
 
   test('marks people you follow, and mutual follows, on the badge', async () => {
@@ -171,11 +178,11 @@ describe('X Follower Count', () => {
       {
         hook: true,
         apiResponses: 4,
-        known: 6,
-        tweets: 4,
+        known: 7,
+        tweets: 5,
         cells: 1,
-        avatars: 6,
-        badges: 5,
+        avatars: 7,
+        badges: 7,
         tweetsKnown: 4,
         hotMarkers: 2,
         missing: ['nobody'],
@@ -185,7 +192,7 @@ describe('X Follower Count', () => {
     const byName = Object.fromEntries(diag.page.endpoints.map((e) => [e.name, e]));
     const summary = (e) => `${e.via}/${e.kinds}: ${e.n} response(s), ${e.users} user(s)`;
     assert.equal(summary(byName.HomeTimeline), 'fetch/application/json: 1 response(s), 1 user(s)');
-    assert.equal(summary(byName.UserTweets), 'xhr/text: 1 response(s), 3 user(s)');
+    assert.equal(summary(byName.UserTweets), 'xhr/text: 1 response(s), 4 user(s)');
     assert.equal(summary(byName.TweetDetail), 'xhr/arraybuffer: 1 response(s), 1 user(s)');
     assert.equal(summary(byName.SearchTimeline), 'xhr/blob: 1 response(s), 2 user(s)');
     assert.equal(diag.page.unreadUserShape, null);
@@ -205,6 +212,10 @@ describe('X Follower Count', () => {
     );
     assert.equal(await textOf('#t1 [data-testid="User-Name"]:not(#quote *)'), '✓ 1.2M');
     assert.equal(await badge('#t1 [data-testid="UserAvatar-Container-Alice"]').count(), 0);
+    // Self-quote: one badge after each @handle, none doubled up.
+    assert.equal(await textOf('#t5 [data-testid="User-Name"]:not(#self-quote *)'), '171');
+    assert.equal(await badge('#self-quote').count(), 1);
+    assert.equal(await badge('#t5').count(), 2);
 
     await popup.evaluate(() =>
       chrome.storage.local.set({ xfcSettings: { enabled: true, position: 'avatar' } })

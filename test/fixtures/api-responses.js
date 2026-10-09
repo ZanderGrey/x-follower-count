@@ -3,7 +3,7 @@
 //
 // Expected results:
 //   users   Alice 1.2M (you follow), bob 54.3K (mutual), carol 999, dave 20K,
-//           eve 77, frank 5
+//           eve 77, frank 5, gina 171 (quotes herself in #t5)
 //   tweets  111 Alice 200K likes -> 16% of followers, hot
 //           222 bob (quoted inside 111) 10K likes -> hot, but not 111's marker
 //           333 dave 30K likes -> 1.5x followers, hot
@@ -63,6 +63,7 @@ module.exports = {
       users: [
         { __typename: 'User', legacy: { screen_name: 'carol', followers_count: 999 } },
         user('dave', 20000, { relationship_perspectives: { following: false } }),
+        user('gina', 171),
       ],
       tweets: [
         tweet('222', 10000, {

@@ -212,15 +212,26 @@
     return match ? match[1].toLowerCase() : '';
   }
 
-  /** Finds the "@handle" text of this author inside a tweet or user cell. */
-  function findHandle(scope, name) {
+  /**
+   * The User-Name areas closest to the avatar: walking up from it, those in the
+   * first ancestor that has any. For a quoted tweet that is the quote's own
+   * header, so a self-quote can't reach the outer tweet's @handle.
+   */
+  function nameAreasNear(avatar, scope) {
+    for (let el = avatar.parentElement; el && scope.contains(el); el = el.parentElement) {
+      if (el.matches(USER_NAME_SEL)) return [el];
+      const areas = el.querySelectorAll(USER_NAME_SEL);
+      if (areas.length) return areas;
+    }
+    return [scope]; // e.g. user cells, which have no User-Name area
+  }
+
+  /** Finds the "@handle" text of this avatar's author. */
+  function findHandle(avatar, scope, name) {
     const target = `@${name}`;
-    const nameAreas = scope.querySelectorAll(USER_NAME_SEL);
-    for (const root of nameAreas.length ? nameAreas : [scope]) {
+    for (const root of nameAreasNear(avatar, scope)) {
       for (const span of root.querySelectorAll('span')) {
-        if (span.childElementCount > 0) continue;
-        if (span.textContent.trim().toLowerCase() !== target) continue;
-        if (!span.nextElementSibling?.classList.contains(BADGE_CLASS)) return span;
+        if (span.childElementCount === 0 && span.textContent.trim().toLowerCase() === target) return span;
       }
     }
     return null;
@@ -239,8 +250,9 @@
       return badge;
     }
 
-    const handle = findHandle(scope, name);
-    if (!handle) return null;
+    const handle = findHandle(avatar, scope, name);
+    // Already badged (e.g. by the Tweet-User-Avatar fallback): never add a second.
+    if (!handle || handle.nextElementSibling?.classList.contains(BADGE_CLASS)) return null;
     const badge = makeBadge(entry, mode);
     handle.after(badge);
     return badge;

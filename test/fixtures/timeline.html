@@ -43,6 +43,14 @@
       <article data-testid="tweet" id="t4">
         <div style="display:flex"><div>${avatar('frank', 40)}</div><div>${userName('Frank', 'frank', '555')}</div></div>
       </article>
+      <article data-testid="tweet" id="t5">
+        <div style="display:flex">
+          <div>${avatar('gina', 40)}</div>
+          <div>${userName('Gina', 'gina', '777')}
+            <div id="self-quote">${avatar('gina', 20)}${userName('Gina', 'gina', '778')}</div>
+          </div>
+        </div>
+      </article>
       <div id="outside">${avatar('Alice', 40)}</div>
     `;
 
