@@ -34,23 +34,37 @@ X 网页版在加载时间线时，返回的 JSON 里本身就带着每位作者
 ## 目录结构
 
 ```
-manifest.json        Manifest V3 配置
-src/page-hook.js     运行在页面环境，拦截 X 的 API 响应并提取粉丝数
-src/content.js       运行在插件环境，缓存数据并在头像旁插入徽标
-src/badge.css        徽标样式
-popup/               插件弹窗（开关、显示位置、清空缓存）
-icons/               图标
-test/                端到端测试（Playwright + 模拟的 x.com 页面）
+manifest.json              Manifest V3 配置
+src/
+  shared.js                内容脚本和弹窗共用的常量（存储键、默认设置、消息类型）
+  page-hook.js             运行在页面环境：拦截 X 的接口响应，提取粉丝数
+  content.js               运行在插件环境：缓存粉丝数，在头像旁插入徽标，回答诊断请求
+  badge.css                徽标样式
+popup/                     插件弹窗：开关、显示位置、清空缓存、诊断
+icons/                     图标
+test/
+  e2e.test.js              端到端测试（Playwright + 无头 Chromium）
+  fixtures/timeline.html   模拟的 x.com 页面
+  fixtures/api-responses.js  模拟的 X 接口响应
 ```
 
-## 测试
+`page-hook.js` 运行在页面自己的 JS 环境里，读不到 `shared.js`，所以它自带一份消息类型常量，修改时两边要保持一致。
+
+## 开发
+
+需要 Node.js 20+。
 
 ```bash
 npm install
-npm test
+npx playwright install chromium   # 首次运行测试前安装浏览器
+
+npm run lint           # ESLint 检查
+npm run format         # Prettier 格式化
+npm test               # 端到端测试
+npm run check          # 以上三项一起跑（提交前建议执行）
 ```
 
-测试会把插件加载进无头 Chromium，用模拟的 x.com 页面和 API 响应验证徽标是否出现在正确的位置、缓存是否生效。
+测试会把插件加载进无头 Chromium，用模拟的 x.com 页面和接口响应验证徽标位置、各种响应格式的解析、诊断信息、显示位置切换和缓存。每次推送到 `main` 或提交 PR 时，GitHub Actions 会自动跑一遍。
 
 ## 打包
 

@@ -1,156 +1,164 @@
-// End-to-end test: loads the unpacked extension into Chromium, serves a mock
-// x.com page plus mock API responses, and checks the badges that appear.
-const { test } = require('node:test');
+// End-to-end tests: load the unpacked extension into Chromium, serve a mock
+// x.com page (fixtures/timeline.html) and mock API responses, and check what
+// the extension draws and reports.
+const { describe, before, after, test } = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { chromium } = require('playwright');
+const API_RESPONSES = require('./fixtures/api-responses');
 
 const ROOT = path.resolve(__dirname, '..');
-const FIXTURE = fs.readFileSync(path.join(__dirname, 'fixtures', 'timeline.html'), 'utf8');
+const PAGE_HTML = fs.readFileSync(path.join(__dirname, 'fixtures', 'timeline.html'), 'utf8');
+const TIMEOUT = 10_000;
+const CACHE_SAVE_WAIT_MS = 2500; // content.js debounces cache writes by 2s
 
-const HOME_TIMELINE = {
-  data: { home: { home_timeline_urt: { instructions: [{ entries: [{ content: { itemContent: {
-    tweet_results: { result: { __typename: 'Tweet', core: { user_results: { result: {
-      __typename: 'User',
-      rest_id: '1',
-      core: { name: 'Alice', screen_name: 'Alice' },
-      legacy: { followers_count: 1234567 },
-    } } } } },
-  } } }] }] } } },
-};
-
-const USER_TWEETS = {
-  data: { users: [
-    { __typename: 'User', legacy: { screen_name: 'bob', followers_count: 54321 } },
-    { __typename: 'User', legacy: { screen_name: 'carol', followers_count: 999 } },
-    { __typename: 'User', core: { screen_name: 'dave' }, legacy: { followers_count: 20000 } },
-  ] },
-};
-
-// Chrome derives an unpacked extension's ID from its directory path.
+/** Chrome derives an unpacked extension's ID from its directory path. */
 function extensionId(dir) {
   const hex = crypto.createHash('sha256').update(fs.realpathSync(dir)).digest('hex').slice(0, 32);
   return [...hex].map((c) => String.fromCharCode(97 + parseInt(c, 16))).join('');
 }
 
-// Prefixed JSON with the count in a non-legacy spot.
-const TWEET_DETAIL = `)]}'\n${JSON.stringify({
-  data: { u: { __typename: 'User', core: { screen_name: 'eve' }, relationship_counts: { followers: 77 } } },
-})}`;
-
-const SEARCH_TIMELINE = {
-  data: { u: { __typename: 'User', core: { screen_name: 'frank' }, legacy: { followers_count: 5 } } },
-};
-
-async function launch() {
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xfc-'));
-  const context = await chromium.launchPersistentContext(userDataDir, {
-    channel: 'chromium',
-    headless: true,
-    args: [`--disable-extensions-except=${ROOT}`, `--load-extension=${ROOT}`],
-  });
-  await context.route('https://x.com/**', (route) => {
+/** Serves the mock page; API calls get `responses[operationName]`, or `{}`. */
+function serveMockX(context, responses) {
+  return context.route('https://x.com/**', (route) => {
     const url = route.request().url();
-    if (url.includes('/HomeTimeline')) {
-      return route.fulfill({ contentType: 'application/json', body: JSON.stringify(HOME_TIMELINE) });
-    }
-    if (url.includes('/TweetDetail')) {
-      return route.fulfill({ contentType: 'application/json', body: TWEET_DETAIL });
-    }
-    if (url.includes('/SearchTimeline')) {
-      return route.fulfill({ contentType: 'application/json', body: JSON.stringify(SEARCH_TIMELINE) });
-    }
-    if (url.includes('/UserTweets')) {
-      return route.fulfill({ contentType: 'application/json', body: JSON.stringify(USER_TWEETS) });
-    }
-    return route.fulfill({ contentType: 'text/html', body: FIXTURE });
+    if (!url.includes('/i/api/')) return route.fulfill({ contentType: 'text/html', body: PAGE_HTML });
+    const operation = Object.keys(responses).find((name) => url.includes(`/${name}`));
+    return route.fulfill({ contentType: 'application/json', body: responses[operation] ?? '{}' });
   });
-  return context;
 }
 
-test('shows follower badges next to avatars', async () => {
-  const context = await launch();
-  try {
-    const page = await context.newPage();
-    await page.goto('https://x.com/home');
+describe('X Follower Count', () => {
+  let context;
+  let page;
+  let popup;
+  const badge = (selector) => page.locator(`${selector} .xfc-badge`);
 
-    const alice = page.locator('#t1 [data-testid="UserAvatar-Container-Alice"] .xfc-badge');
-    await alice.waitFor({ timeout: 10000 });
-    assert.equal(await alice.textContent(), '1.2M');
-    assert.match(await alice.getAttribute('class'), /xfc-avatar/);
-    assert.match(await alice.getAttribute('class'), /xfc-t4/);
+  async function textOf(selector) {
+    const locator = badge(selector);
+    await locator.waitFor({ timeout: TIMEOUT });
+    return locator.textContent();
+  }
 
-    // Quoted tweet avatar is small, so the badge goes after its @handle -
-    // not after the @bob mention in the tweet text.
-    const bob = page.locator('#quote [data-testid="User-Name"] .xfc-badge');
-    await bob.waitFor({ timeout: 10000 });
-    assert.equal(await bob.textContent(), '54.3K');
-    assert.equal(await page.locator('[data-testid="tweetText"] .xfc-badge').count(), 0);
-
-    const carol = page.locator('#cell .xfc-badge');
-    await carol.waitFor({ timeout: 10000 });
-    assert.equal(await carol.textContent(), '999');
-
-    // Fallback: a tweet avatar without the per-user container testid.
-    const dave = page.locator('#t3 [data-testid="Tweet-User-Avatar"] .xfc-badge');
-    await dave.waitFor({ timeout: 10000 });
-    assert.equal(await dave.textContent(), '20K');
-
-    // Unknown users and avatars outside tweets/user cells get nothing.
-    assert.equal(await page.locator('#t2 .xfc-badge').count(), 0);
-    assert.equal(await page.locator('#outside .xfc-badge').count(), 0);
-    assert.equal(await page.locator('.xfc-badge').count(), 4);
-
-    // Diagnostics the popup shows.
-    const popup = await context.newPage();
-    await popup.goto(`chrome-extension://${extensionId(ROOT)}/popup/popup.html`);
-    const diag = await popup.evaluate(async () => {
-      const tabs = await chrome.tabs.query({});
-      for (const tab of tabs) {
-        const resp = await chrome.tabs.sendMessage(tab.id, { type: 'xfc:diag' }).catch(() => null);
-        if (resp) return resp;
+  async function sendDiagnose() {
+    return popup.evaluate(async () => {
+      for (const tab of await chrome.tabs.query({})) {
+        const response = await chrome.tabs.sendMessage(tab.id, { type: 'xfc:diag' }).catch(() => null);
+        if (response) return response;
       }
       return null;
     });
-    assert.equal(diag.hook, true);
-    assert.equal(diag.apiResponses, 4);
-    assert.equal(diag.known, 6);
-    const byName = Object.fromEntries(diag.page.endpoints.map((e) => [e.name, e]));
+  }
+
+  before(async () => {
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xfc-'));
+    context = await chromium.launchPersistentContext(userDataDir, {
+      channel: 'chromium',
+      headless: true,
+      args: [`--disable-extensions-except=${ROOT}`, `--load-extension=${ROOT}`],
+    });
+    await serveMockX(context, API_RESPONSES);
+    page = await context.newPage();
+    await page.goto('https://x.com/home');
+    popup = await context.newPage();
+    await popup.goto(`chrome-extension://${extensionId(ROOT)}/popup/popup.html`);
+    await page.bringToFront();
+  });
+
+  after(async () => {
+    await context?.close();
+  });
+
+  test('hangs a compact, colour-tiered badge under a tweet author avatar', async () => {
+    assert.equal(await textOf('#t1 [data-testid="UserAvatar-Container-Alice"]'), '1.2M');
+    const classes = await badge('#t1 [data-testid="UserAvatar-Container-Alice"]').getAttribute('class');
+    assert.match(classes, /\bxfc-avatar\b/);
+    assert.match(classes, /\bxfc-t4\b/);
+  });
+
+  test('puts the badge after the @handle for small quoted-tweet avatars', async () => {
+    assert.equal(await textOf('#quote [data-testid="User-Name"]'), '54.3K');
+    // Not after the @bob mention in the tweet text.
+    assert.equal(await badge('[data-testid="tweetText"]').count(), 0);
+  });
+
+  test('badges user cells', async () => {
+    assert.equal(await textOf('#cell'), '999');
+  });
+
+  test('falls back to the Tweet-User-Avatar wrapper', async () => {
+    assert.equal(await textOf('#t3 [data-testid="Tweet-User-Avatar"]'), '20K');
+  });
+
+  test('skips unknown users and avatars outside tweets and user cells', async () => {
+    assert.equal(await badge('#t2').count(), 0);
+    assert.equal(await badge('#outside').count(), 0);
+    assert.equal(await page.locator('.xfc-badge').count(), 4);
+  });
+
+  test('reports diagnostics for every intercepted response', async () => {
+    const diag = await sendDiagnose();
     assert.deepEqual(
-      { ...byName.HomeTimeline, sample: undefined },
-      { name: 'HomeTimeline', n: 1, users: 1, nonJson: 0, via: 'fetch', kinds: 'application/json', sample: undefined }
+      {
+        hook: diag.hook,
+        apiResponses: diag.apiResponses,
+        known: diag.known,
+        tweets: diag.tweets,
+        cells: diag.cells,
+        avatars: diag.avatars,
+        badges: diag.badges,
+        missing: diag.missing,
+      },
+      {
+        hook: true,
+        apiResponses: 4,
+        known: 6,
+        tweets: 3,
+        cells: 1,
+        avatars: 5,
+        badges: 4,
+        missing: ['nobody'],
+      }
     );
-    assert.equal(byName.UserTweets.users, 3);
-    assert.equal(byName.TweetDetail.kinds, 'arraybuffer');
-    assert.equal(byName.TweetDetail.users, 1);
-    assert.equal(byName.SearchTimeline.kinds, 'blob');
-    assert.equal(byName.SearchTimeline.users, 1);
+
+    const byName = Object.fromEntries(diag.page.endpoints.map((e) => [e.name, e]));
+    const summary = (e) => `${e.via}/${e.kinds}: ${e.n} response(s), ${e.users} user(s)`;
+    assert.equal(summary(byName.HomeTimeline), 'fetch/application/json: 1 response(s), 1 user(s)');
+    assert.equal(summary(byName.UserTweets), 'xhr/text: 1 response(s), 3 user(s)');
+    assert.equal(summary(byName.TweetDetail), 'xhr/arraybuffer: 1 response(s), 1 user(s)');
+    assert.equal(summary(byName.SearchTimeline), 'xhr/blob: 1 response(s), 1 user(s)');
     assert.equal(diag.page.unreadUserShape, null);
     assert.ok(Object.keys(diag.page.performance).some((k) => k.startsWith('HomeTimeline')));
-    assert.equal(diag.tweets, 3);
-    assert.equal(diag.cells, 1);
-    assert.equal(diag.avatars, 5);
-    assert.equal(diag.badges, 4);
-    assert.deepEqual(diag.missing, ['nobody']);
-    // The popup itself is the active tab here, so it reports "not x.com".
-    assert.match(await popup.locator('#verdict').textContent(), /不是 x\.com/);
-    await popup.close();
+  });
 
-    // Counts are cached: a reload with no API data still shows them.
-    await context.unroute('https://x.com/**');
-    await page.waitForTimeout(2500); // let the debounced cache write land
-    await context.route('https://x.com/**', (route) =>
-      route.request().url().includes('/i/api/')
-        ? route.fulfill({ contentType: 'application/json', body: '{}' })
-        : route.fulfill({ contentType: 'text/html', body: FIXTURE })
+  test('popup says so when the active tab is not x.com', async () => {
+    await popup.bringToFront();
+    await popup.reload();
+    assert.match(await popup.locator('#verdict').textContent(), /不是 x\.com/);
+    await page.bringToFront();
+  });
+
+  test('moves badges after the @handle when the position setting changes', async () => {
+    await popup.evaluate(() =>
+      chrome.storage.local.set({ xfcSettings: { enabled: true, position: 'name' } })
     );
+    assert.equal(await textOf('#t1 [data-testid="User-Name"]:not(#quote *)'), '1.2M');
+    assert.equal(await badge('#t1 [data-testid="UserAvatar-Container-Alice"]').count(), 0);
+
+    await popup.evaluate(() =>
+      chrome.storage.local.set({ xfcSettings: { enabled: true, position: 'avatar' } })
+    );
+    assert.equal(await textOf('#t1 [data-testid="UserAvatar-Container-Alice"]'), '1.2M');
+  });
+
+  test('shows cached counts after a reload with no API data', async () => {
+    await page.waitForTimeout(CACHE_SAVE_WAIT_MS);
+    await context.unroute('https://x.com/**');
+    await serveMockX(context, {});
     await page.reload();
-    await alice.waitFor({ timeout: 10000 });
-    assert.equal(await alice.textContent(), '1.2M');
-  } finally {
-    await context.close();
-  }
+    assert.equal(await textOf('#t1 [data-testid="UserAvatar-Container-Alice"]'), '1.2M');
+  });
 });

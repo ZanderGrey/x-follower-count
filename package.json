@@ -1,14 +1,25 @@
 {
   "name": "x-follower-count",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Chrome extension that shows follower counts next to avatars on X (Twitter) web.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "node --test test/*.test.js",
+    "check": "npm run lint && npm run format:check && npm test",
     "zip": "zip -r x-follower-count.zip manifest.json src popup icons"
   },
   "devDependencies": {
-    "playwright": "^1.56.1"
-  },
-  "license": "MIT"
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.12.0",
+    "globals": "^17.13.0",
+    "playwright": "^1.56.1",
+    "prettier": "^3.9.9"
+  }
 }

@@ -1,20 +1,23 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>mock x.com</title></head>
-<body>
-  <main id="feed"></main>
-  <script>
-    // Mimics the bits of X's DOM the extension relies on.
-    function avatar(name, px) {
-      return `<div data-testid="UserAvatar-Container-${name}" style="width:${px}px;height:${px}px">
+  <head>
+    <meta charset="utf-8" />
+    <title>mock x.com</title>
+  </head>
+  <body>
+    <main id="feed"></main>
+    <script>
+      // Mimics the bits of X's DOM the extension relies on.
+      function avatar(name, px) {
+        return `<div data-testid="UserAvatar-Container-${name}" style="width:${px}px;height:${px}px">
         <a href="/${name}"><div style="width:${px}px;height:${px}px;border-radius:50%;background:#ccc"></div></a>
       </div>`;
-    }
-    function userName(display, name) {
-      return `<div data-testid="User-Name"><a href="/${name}"><span>${display}</span></a>
+      }
+      function userName(display, name) {
+        return `<div data-testid="User-Name"><a href="/${name}"><span>${display}</span></a>
         <a href="/${name}"><div><span>@${name}</span></div></a></div>`;
-    }
-    document.getElementById('feed').innerHTML = `
+      }
+      document.getElementById('feed').innerHTML = `
       <article data-testid="tweet" id="t1">
         <div style="display:flex">
           <div>${avatar('Alice', 40)}</div>
@@ -38,23 +41,23 @@
       <div id="outside">${avatar('Alice', 40)}</div>
     `;
 
-    // New-style GraphQL user (screen_name under core) via fetch.
-    fetch('/i/api/graphql/abc/HomeTimeline').then(r => r.json());
+      // New-style GraphQL user (screen_name under core) via fetch.
+      fetch('/i/api/graphql/abc/HomeTimeline').then((r) => r.json());
 
-    // Old-style GraphQL users via XHR.
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', '/i/api/graphql/def/UserTweets');
-    xhr.send();
+      // Old-style GraphQL users via XHR.
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', '/i/api/graphql/def/UserTweets');
+      xhr.send();
 
-    // Binary response types, as some clients use.
-    const ab = new XMLHttpRequest();
-    ab.open('GET', '/i/api/graphql/ghi/TweetDetail');
-    ab.responseType = 'arraybuffer';
-    ab.send();
-    const blob = new XMLHttpRequest();
-    blob.open('GET', '/i/api/graphql/jkl/SearchTimeline');
-    blob.responseType = 'blob';
-    blob.send();
-  </script>
-</body>
+      // Binary response types, as some clients use.
+      const ab = new XMLHttpRequest();
+      ab.open('GET', '/i/api/graphql/ghi/TweetDetail');
+      ab.responseType = 'arraybuffer';
+      ab.send();
+      const blob = new XMLHttpRequest();
+      blob.open('GET', '/i/api/graphql/jkl/SearchTimeline');
+      blob.responseType = 'blob';
+      blob.send();
+    </script>
+  </body>
 </html>
