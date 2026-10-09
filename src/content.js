@@ -220,7 +220,25 @@
 
   // ---------- diagnostics (shown in the popup) ----------
 
-  function diagnose() {
+  // Asks page-hook.js (page world) for its per-endpoint stats.
+  function pageStats() {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        window.removeEventListener('message', onReply);
+        resolve(null);
+      }, 500);
+      function onReply(e) {
+        if (e.source !== window || !e.data || e.data.type !== 'xfc:stats') return;
+        clearTimeout(timer);
+        window.removeEventListener('message', onReply);
+        resolve(e.data);
+      }
+      window.addEventListener('message', onReply);
+      window.postMessage({ type: 'xfc:stats-req' }, location.origin);
+    });
+  }
+
+  async function diagnose() {
     const avatarNames = [];
     for (const avatar of document.querySelectorAll(AVATAR_SEL)) {
       if (!avatar.closest(SCOPE_SEL)) continue;
@@ -239,12 +257,15 @@
       badges: document.querySelectorAll('.xfc-badge').length,
       missing: avatarNames.filter((n) => !counts.has(n)).slice(0, 5),
       sampleKnown: [...counts.keys()].slice(-5),
+      page: await pageStats(),
     };
   }
 
   try {
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-      if (msg && msg.type === DIAG_TYPE) sendResponse(diagnose());
+      if (!msg || msg.type !== DIAG_TYPE) return false;
+      diagnose().then(sendResponse);
+      return true; // Responds asynchronously.
     });
   } catch {
     // Ignore.

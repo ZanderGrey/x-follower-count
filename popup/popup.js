@@ -54,10 +54,12 @@ function verdictFor(d) {
   if (!d.hook) return '页面脚本没有注入。请确认 Chrome 版本 ≥ 111，并刷新 x.com。';
   if (!d.enabled) return '插件已被关闭，勾选上方"启用"即可。';
   if (d.apiResponses === 0) return '没有拦截到 X 的接口数据。刷新页面并往下滚动几屏后再看。';
+  if (d.usersFromApi < 5 && d.apiResponses >= 10) return '拦截到了很多接口数据，但几乎没解析出粉丝数。请点下方按钮复制诊断信息发给开发者。';
   if (d.usersFromApi === 0) return '拦截到了接口数据，但没有解析出粉丝数（X 可能改了数据格式）。';
   if (d.tweets + d.cells === 0) return '有粉丝数据，但页面上找不到推文元素（X 可能改了页面结构）。';
   if (d.avatars === 0) return '找到了推文，但找不到头像元素（X 可能改了页面结构）。';
   if (d.badges === 0) return '头像和数据都有，但没能显示出来。';
+  if (d.missing.length) return '部分头像还没有数据，往下滚动或刷新后会补上；一直没有的话请复制诊断信息发给开发者。';
   return '工作正常。';
 }
 
@@ -74,6 +76,9 @@ function showDiag(d) {
         ['已显示的徽标', d.badges],
         ['没有数据的头像', d.missing.join(', ') || '-'],
         ['已知用户示例', d.sampleKnown.join(', ') || '-'],
+        ...(d.page?.endpoints || [])
+          .slice(0, 8)
+          .map((e) => [`接口 ${e.name}`, `${e.n} 次 / ${e.users} 人${e.nonJson ? ` / ${e.nonJson} 非JSON` : ''}`]),
       ]
     : [];
   diagEl.replaceChildren(
@@ -86,7 +91,7 @@ function showDiag(d) {
     })
   );
   diagText = `${verdictEl.textContent}\n${JSON.stringify(d)}\nChrome ${navigator.userAgent.match(/Chrome\/([\d.]+)/)?.[1] || '?'}`;
-  if (d && (!d.hook || d.badges === 0)) diagBox.open = true;
+  if (d && (!d.hook || d.badges < d.avatars / 2)) diagBox.open = true;
   if (!d) diagBox.open = true;
 }
 

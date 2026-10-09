@@ -45,6 +45,16 @@
     const xhr = new XMLHttpRequest();
     xhr.open('GET', '/i/api/graphql/def/UserTweets');
     xhr.send();
+
+    // Binary response types, as some clients use.
+    const ab = new XMLHttpRequest();
+    ab.open('GET', '/i/api/graphql/ghi/TweetDetail');
+    ab.responseType = 'arraybuffer';
+    ab.send();
+    const blob = new XMLHttpRequest();
+    blob.open('GET', '/i/api/graphql/jkl/SearchTimeline');
+    blob.responseType = 'blob';
+    blob.send();
   </script>
 </body>
 </html>

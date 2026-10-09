@@ -36,6 +36,15 @@ function extensionId(dir) {
   return [...hex].map((c) => String.fromCharCode(97 + parseInt(c, 16))).join('');
 }
 
+// Prefixed JSON with the count in a non-legacy spot.
+const TWEET_DETAIL = `)]}'\n${JSON.stringify({
+  data: { u: { __typename: 'User', core: { screen_name: 'eve' }, relationship_counts: { followers: 77 } } },
+})}`;
+
+const SEARCH_TIMELINE = {
+  data: { u: { __typename: 'User', core: { screen_name: 'frank' }, legacy: { followers_count: 5 } } },
+};
+
 async function launch() {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xfc-'));
   const context = await chromium.launchPersistentContext(userDataDir, {
@@ -47,6 +56,12 @@ async function launch() {
     const url = route.request().url();
     if (url.includes('/HomeTimeline')) {
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify(HOME_TIMELINE) });
+    }
+    if (url.includes('/TweetDetail')) {
+      return route.fulfill({ contentType: 'application/json', body: TWEET_DETAIL });
+    }
+    if (url.includes('/SearchTimeline')) {
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify(SEARCH_TIMELINE) });
     }
     if (url.includes('/UserTweets')) {
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify(USER_TWEETS) });
@@ -101,8 +116,20 @@ test('shows follower badges next to avatars', async () => {
       return null;
     });
     assert.equal(diag.hook, true);
-    assert.equal(diag.apiResponses, 2);
-    assert.equal(diag.known, 4);
+    assert.equal(diag.apiResponses, 4);
+    assert.equal(diag.known, 6);
+    const byName = Object.fromEntries(diag.page.endpoints.map((e) => [e.name, e]));
+    assert.deepEqual(
+      { ...byName.HomeTimeline, sample: undefined },
+      { name: 'HomeTimeline', n: 1, users: 1, nonJson: 0, via: 'fetch', kinds: 'application/json', sample: undefined }
+    );
+    assert.equal(byName.UserTweets.users, 3);
+    assert.equal(byName.TweetDetail.kinds, 'arraybuffer');
+    assert.equal(byName.TweetDetail.users, 1);
+    assert.equal(byName.SearchTimeline.kinds, 'blob');
+    assert.equal(byName.SearchTimeline.users, 1);
+    assert.equal(diag.page.unreadUserShape, null);
+    assert.ok(Object.keys(diag.page.performance).some((k) => k.startsWith('HomeTimeline')));
     assert.equal(diag.tweets, 3);
     assert.equal(diag.cells, 1);
     assert.equal(diag.avatars, 5);
