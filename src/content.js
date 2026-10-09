@@ -3,6 +3,7 @@
 // (or @handle) in tweets and user lists.
 (() => {
   const MSG_TYPE = 'xfc:users';
+  const DIAG_TYPE = 'xfc:diag';
   const CACHE_KEY = 'xfcCache';
   const SETTINGS_KEY = 'xfcSettings';
   const CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
@@ -10,7 +11,10 @@
   const DEFAULT_SETTINGS = { enabled: true, position: 'avatar' };
 
   const AVATAR_PREFIX = 'UserAvatar-Container-';
-  const AVATAR_SEL = `[data-testid^="${AVATAR_PREFIX}"]`;
+  // The tweet-avatar wrapper is a fallback in case the per-user container
+  // testid changes; render() skips it when it wraps a per-user container.
+  const TWEET_AVATAR_SEL = '[data-testid="Tweet-User-Avatar"]';
+  const AVATAR_SEL = `[data-testid^="${AVATAR_PREFIX}"], ${TWEET_AVATAR_SEL}`;
   const SCOPE_SEL = 'article[data-testid="tweet"], [data-testid="UserCell"]';
   const SMALL_AVATAR_PX = 28;
 
@@ -19,12 +23,15 @@
   let settings = { ...DEFAULT_SETTINGS };
   /** avatar element -> { badge, count } */
   let placed = new WeakMap();
+  const stats = { apiResponses: 0, usersFromApi: 0 };
 
   // ---------- data ----------
 
   window.addEventListener('message', (e) => {
     const d = e.data;
     if (e.source !== window || !d || d.type !== MSG_TYPE || !Array.isArray(d.users)) return;
+    if (d.api) stats.apiResponses++;
+    stats.usersFromApi += d.users.length;
     const now = Date.now();
     let changed = false;
     for (const pair of d.users) {
@@ -132,7 +139,9 @@
 
   function screenNameOf(avatar) {
     const id = avatar.getAttribute('data-testid') || '';
-    if (id.length > AVATAR_PREFIX.length) return id.slice(AVATAR_PREFIX.length).toLowerCase();
+    if (id.startsWith(AVATAR_PREFIX) && id.length > AVATAR_PREFIX.length) {
+      return id.slice(AVATAR_PREFIX.length).toLowerCase();
+    }
     const href = avatar.querySelector('a[href^="/"]')?.getAttribute('href') || '';
     const m = href.match(/^\/([A-Za-z0-9_]{1,15})(?:$|[/?#])/);
     return m ? m[1].toLowerCase() : '';
@@ -178,6 +187,7 @@
     if (!settings.enabled) return;
     for (const avatar of document.querySelectorAll(AVATAR_SEL)) {
       if (avatar.closest('.xfc-badge')) continue;
+      if (avatar.matches(TWEET_AVATAR_SEL) && avatar.querySelector(`[data-testid^="${AVATAR_PREFIX}"]`)) continue;
       const name = screenNameOf(avatar);
       const entry = name && counts.get(name);
       if (!entry) continue;
@@ -206,6 +216,38 @@
       renderQueued = false;
       render();
     });
+  }
+
+  // ---------- diagnostics (shown in the popup) ----------
+
+  function diagnose() {
+    const avatarNames = [];
+    for (const avatar of document.querySelectorAll(AVATAR_SEL)) {
+      if (!avatar.closest(SCOPE_SEL)) continue;
+      const name = screenNameOf(avatar);
+      if (name && !avatarNames.includes(name)) avatarNames.push(name);
+    }
+    return {
+      hook: document.documentElement.hasAttribute('data-xfc-hook'),
+      enabled: settings.enabled,
+      apiResponses: stats.apiResponses,
+      usersFromApi: stats.usersFromApi,
+      known: counts.size,
+      tweets: document.querySelectorAll('article[data-testid="tweet"]').length,
+      cells: document.querySelectorAll('[data-testid="UserCell"]').length,
+      avatars: avatarNames.length,
+      badges: document.querySelectorAll('.xfc-badge').length,
+      missing: avatarNames.filter((n) => !counts.has(n)).slice(0, 5),
+      sampleKnown: [...counts.keys()].slice(-5),
+    };
+  }
+
+  try {
+    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+      if (msg && msg.type === DIAG_TYPE) sendResponse(diagnose());
+    });
+  } catch {
+    // Ignore.
   }
 
   new MutationObserver(scheduleRender).observe(document.documentElement, {

@@ -48,19 +48,25 @@
     return found;
   }
 
-  function publish(data) {
-    if (!data || typeof data !== 'object') return;
-    const users = collectUsers(data);
-    if (users.size) window.postMessage({ type: MSG_TYPE, users: [...users] }, location.origin);
+  // Every intercepted API response is reported, even with no users in it,
+  // so the popup's diagnostics can tell "not intercepting" from "no data".
+  function publish(data, api) {
+    const users = data && typeof data === 'object' ? collectUsers(data) : new Map();
+    if (users.size || api) {
+      window.postMessage({ type: MSG_TYPE, users: [...users], api: Boolean(api) }, location.origin);
+    }
   }
 
   function handleText(text) {
-    if (!text || (text[0] !== '{' && text[0] !== '[')) return;
-    try {
-      publish(JSON.parse(text));
-    } catch {
-      // Not JSON; ignore.
+    let data = null;
+    if (text && (text[0] === '{' || text[0] === '[')) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // Not JSON.
+      }
     }
+    publish(data, true);
   }
 
   const origFetch = window.fetch;
@@ -71,8 +77,6 @@
         (res) => {
           try {
             if (!API_RE.test(res.url)) return;
-            const ct = res.headers.get('content-type') || '';
-            if (!ct.includes('json')) return;
             res.clone().text().then(handleText, () => {});
           } catch {
             // Never break the page's own request.
@@ -96,7 +100,7 @@
       this.addEventListener('load', () => {
         try {
           if (this.responseType === '' || this.responseType === 'text') handleText(this.responseText);
-          else if (this.responseType === 'json') publish(this.response);
+          else if (this.responseType === 'json') publish(this.response, true);
         } catch {
           // Ignore.
         }
@@ -104,6 +108,9 @@
     }
     return origSend.apply(this, args);
   };
+
+  // Lets the content script's diagnostics see that this script was injected.
+  document.documentElement.setAttribute('data-xfc-hook', '1');
 
   // The first page load may embed users in the server-rendered state.
   function readInitialState() {

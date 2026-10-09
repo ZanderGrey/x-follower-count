@@ -29,6 +29,12 @@
       </article>
       <div data-testid="UserCell" id="cell">${avatar('carol', 40)}
         <a href="/carol"><span>Carol</span></a><a href="/carol"><span>@carol</span></a></div>
+      <article data-testid="tweet" id="t3">
+        <div style="display:flex">
+          <div data-testid="Tweet-User-Avatar" style="width:40px;height:40px"><a href="/dave"><div style="width:40px;height:40px;border-radius:50%;background:#ccc"></div></a></div>
+          <div>${userName('Dave', 'dave')}</div>
+        </div>
+      </article>
       <div id="outside">${avatar('Alice', 40)}</div>
     `;
 
